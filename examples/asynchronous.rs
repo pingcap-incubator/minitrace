@@ -42,6 +42,16 @@ async fn other_job() {
     }
 }
 
+#[cfg(feature = "jaeger")]
+use clap::Clap;
+#[cfg(feature = "jaeger")]
+#[derive(Clap)]
+struct Opts {
+    /// Sets a custom config file. Could have been an Option<T> with no default too
+    #[clap(long, default_value = "127.0.0.1:6831")]
+    jaeger: String,
+}
+
 #[tokio::main]
 async fn main() {
     let (collector, _) = async {
@@ -64,6 +74,7 @@ async fn main() {
         use minitrace::State;
 
         use std::net::SocketAddr;
+        let opts = Opts::parse();
         let mut buf = Vec::with_capacity(2048);
         minitrace::jaeger::thrift_compact_encode(
             &mut buf,
@@ -105,7 +116,7 @@ async fn main() {
 
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
         if let Ok(mut socket) = tokio::net::UdpSocket::bind(local_addr).await {
-            let _ = socket.send_to(&buf, "127.0.0.1:6831").await;
+            let _ = socket.send_to(&buf, opts.jaeger).await;
         }
     }
 

@@ -16,6 +16,7 @@ minitrace-attribute = { path = "crates/attribute" }
 lazy_static = "1.4.0"
 crossbeam = "0.7"
 minstant = { git = "https://github.com/zhongzc/minstant.git" }
+clap = "3.0.0-beta.1"
 
 [dependencies.futures_01]
 version = "0.1"
