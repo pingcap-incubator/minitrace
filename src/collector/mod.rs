@@ -5,8 +5,7 @@ mod sync_impl;
 use crate::trace::SpanSet;
 pub use sync_impl::{Finisher, SyncCollector, TraceResult};
 
-pub trait Collector: Send {
-    fn collect_span_set(&mut self, span_set: SpanSet);
-    fn is_closed(&mut self) -> bool;
-    fn clone_into_box(&mut self) -> Box<dyn Collector>;
+pub trait Collector: Send + Sync {
+    fn collect_span_set(&self, span_set: SpanSet);
+    fn is_closed(&self) -> bool;
 }

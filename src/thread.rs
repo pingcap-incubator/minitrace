@@ -3,6 +3,7 @@
 use crate::collector::Collector;
 use crate::trace::*;
 use crate::utils::{cycles_to_ns, real_time_ns};
+use std::sync::Arc;
 
 /// Bind the current tracing context to another executing context.
 ///
@@ -27,7 +28,7 @@ pub fn new_async_handle() -> AsyncHandle {
     let parent_id = *tl.enter_stack.last().unwrap();
     let inner = AsyncHandleInner {
         trace_id: tl.trace_id,
-        collector: tl.collector.as_mut().map(|c| c.clone_into_box()),
+        collector: tl.collector.clone(),
         next_pending_parent_id: parent_id,
         begin_cycles: minstant::now(),
     };
@@ -37,7 +38,7 @@ pub fn new_async_handle() -> AsyncHandle {
 
 struct AsyncHandleInner {
     trace_id: TraceId,
-    collector: Option<Box<dyn Collector>>,
+    collector: Option<Arc<dyn Collector>>,
     next_pending_parent_id: SpanId,
     begin_cycles: u64,
 }
@@ -71,7 +72,7 @@ impl AsyncHandle {
         event: u32,
         tl: &mut TraceLocal,
     ) -> Option<AsyncScopeGuard<'a>> {
-        let collector = handle_inner.collector.as_mut()?;
+        let collector = handle_inner.collector.as_ref()?;
         if collector.is_closed() {
             handle_inner.collector = None;
             return None;
@@ -107,7 +108,7 @@ impl AsyncHandle {
 
         tl.trace_id = handle_inner.trace_id;
         tl.start_time_ns = real_time_ns().saturating_sub(cycles_to_ns(elapsed_cycles));
-        tl.collector = Some(collector.clone_into_box());
+        tl.collector = Some(collector.clone());
 
         Some(AsyncScopeGuard {
             span_inner,
@@ -160,7 +161,7 @@ impl<'a> Drop for AsyncScopeGuard<'a> {
 
         let (spans, properties) = tl.take_spans_and_properties();
 
-        let mut c = tl.collector.take().unwrap();
+        let c = tl.collector.take().unwrap();
         c.collect_span_set(SpanSet {
             trace_id: tl.trace_id,
             start_time_ns: tl.start_time_ns,

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 
 use crate::collector::Collector;
 use crate::utils::real_time_ns;
+use std::sync::Arc;
 
 pub type SpanId = u32;
 pub type TraceId = u64;
@@ -42,7 +43,7 @@ fn next_global_id_prefix() -> u16 {
 pub fn start_trace<T: Into<u32>>(
     trace_id: TraceId,
     root_event: T,
-    collector: Box<dyn Collector>,
+    collector: Arc<dyn Collector>,
 ) -> Option<ScopeGuard> {
     let trace = TRACE_LOCAL.with(|trace| trace.get());
     let tl = unsafe { &mut *trace };
@@ -128,7 +129,7 @@ pub struct TraceLocal {
 
     pub trace_id: TraceId,
     pub start_time_ns: u64,
-    pub collector: Option<Box<dyn Collector>>,
+    pub collector: Option<Arc<dyn Collector>>,
 }
 
 impl TraceLocal {
@@ -242,7 +243,7 @@ impl Drop for ScopeGuard {
 
         let (spans, properties) = tl.take_spans_and_properties();
 
-        let mut c = tl.collector.take().unwrap();
+        let c = tl.collector.take().unwrap();
         c.collect_span_set(SpanSet {
             trace_id: tl.trace_id,
             start_time_ns: tl.start_time_ns,

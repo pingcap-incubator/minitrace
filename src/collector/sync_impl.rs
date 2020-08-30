@@ -29,13 +29,13 @@ struct CollectorInner {
 }
 
 impl SyncCollector {
-    pub fn new() -> (Box<dyn Collector>, Finisher) {
+    pub fn new() -> (Arc<dyn Collector>, Finisher) {
         let (tx, rx) = unbounded();
         let inner = Arc::new(CollectorInner {
             is_closed: AtomicBool::new(false),
             tx,
         });
-        let collector = Box::new(SyncCollector {
+        let collector = Arc::new(SyncCollector {
             inner: inner.clone(),
         });
         let finisher = Finisher {
@@ -48,16 +48,12 @@ impl SyncCollector {
 }
 
 impl Collector for SyncCollector {
-    fn collect_span_set(&mut self, span_set: SpanSet) {
+    fn collect_span_set(&self, span_set: SpanSet) {
         let _ = self.inner.tx.try_send(span_set);
     }
 
-    fn is_closed(&mut self) -> bool {
+    fn is_closed(&self) -> bool {
         self.inner.is_closed.load(Ordering::Relaxed)
-    }
-
-    fn clone_into_box(&mut self) -> Box<dyn Collector> {
-        Box::new(self.clone())
     }
 }
 
