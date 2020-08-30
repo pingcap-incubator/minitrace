@@ -1,5 +1,12 @@
-use minitrace::{Properties, Span, TraceResult};
+use minitrace::{Properties, Span};
 use std::collections::HashMap;
+
+pub struct TraceResult<'a> {
+    pub start_time_ns: u64,
+    pub cycles_per_second: u64,
+    pub spans: &'a [Span],
+    pub properties: &'a Properties,
+}
 
 #[repr(i32)]
 pub enum ReferenceType {
@@ -29,13 +36,12 @@ pub fn thrift_compact_encode<'a, S0: AsRef<str>, S1: AsRef<str>, S2: AsRef<str>>
         cycles_per_second,
         spans,
         properties,
-        ..
-    }: &'a TraceResult,
+    }: TraceResult<'a>,
     span_remap: impl Fn(&'a Span) -> JaegerSpanInfo<S0>,
     property_to_kv: impl Fn(&'a [u8]) -> (S1, S2),
 ) {
     let (bytes_slices, id_to_bytes_slice) = reorder_properties(properties);
-    let start_time_us = *start_time_ns / 1_000;
+    let start_time_us = start_time_ns / 1_000;
 
     // # thrift message header
     // ## protocol id
@@ -267,7 +273,7 @@ pub fn thrift_compact_encode<'a, S0: AsRef<str>, S1: AsRef<str>, S2: AsRef<str>>
         buf.push(0x16);
         // start time data
         let delta_cycles = begin_cycles.wrapping_sub(anchor_cycles);
-        let delta_us = delta_cycles as f64 / *cycles_per_second as f64 * 1_000_000.0;
+        let delta_us = delta_cycles as f64 / cycles_per_second as f64 * 1_000_000.0;
         encode::varint(
             buf,
             zigzag::from_i64((start_time_us + delta_us as u64) as _),
@@ -281,7 +287,7 @@ pub fn thrift_compact_encode<'a, S0: AsRef<str>, S1: AsRef<str>, S2: AsRef<str>>
         // ```
         buf.push(0x16);
         // duration data
-        let duration_us = *elapsed_cycles as f64 / *cycles_per_second as f64 * 1_000_000.0;
+        let duration_us = *elapsed_cycles as f64 / cycles_per_second as f64 * 1_000_000.0;
         encode::varint(buf, zigzag::from_i64(duration_us as _));
 
         // tags

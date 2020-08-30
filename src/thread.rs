@@ -1,11 +1,8 @@
 // Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
 
-use std::sync::Arc;
-
-use crossbeam::channel::Sender;
-
-use crate::collector::SpanSet;
+use crate::collector::Collector;
 use crate::trace::*;
+use crate::utils::{cycles_to_ns, real_time_ns};
 
 /// Bind the current tracing context to another executing context.
 ///
@@ -29,7 +26,8 @@ pub fn new_async_handle() -> AsyncHandle {
 
     let parent_id = *tl.enter_stack.last().unwrap();
     let inner = AsyncHandleInner {
-        collector: tl.cur_collector.clone().unwrap(),
+        trace_id: tl.trace_id,
+        collector: tl.collector.as_mut().map(|c| c.clone_into_box()),
         next_pending_parent_id: parent_id,
         begin_cycles: minstant::now(),
     };
@@ -38,8 +36,9 @@ pub fn new_async_handle() -> AsyncHandle {
 }
 
 struct AsyncHandleInner {
-    collector: Arc<Sender<SpanSet>>,
-    next_pending_parent_id: u32,
+    trace_id: TraceId,
+    collector: Option<Box<dyn Collector>>,
+    next_pending_parent_id: SpanId,
     begin_cycles: u64,
 }
 
@@ -57,12 +56,12 @@ impl AsyncHandle {
         let tl = unsafe { &mut *trace };
 
         let event = event.into();
-        if tl.enter_stack.is_empty() {
+        if !tl.enter_stack.is_empty() {
+            Some(AsyncGuard::SpanGuard(Self::new_span(inner, event, tl)))
+        } else {
             Some(AsyncGuard::AsyncScopeGuard(Self::new_scope(
                 inner, event, tl,
-            )))
-        } else {
-            Some(AsyncGuard::SpanGuard(Self::new_span(inner, event, tl)))
+            )?))
         }
     }
 
@@ -71,17 +70,26 @@ impl AsyncHandle {
         handle_inner: &'a mut AsyncHandleInner,
         event: u32,
         tl: &mut TraceLocal,
-    ) -> AsyncScopeGuard<'a> {
+    ) -> Option<AsyncScopeGuard<'a>> {
+        let collector = handle_inner.collector.as_mut()?;
+        if collector.is_closed() {
+            handle_inner.collector = None;
+            return None;
+        }
+
+        let now_cycle = minstant::now();
+        let elapsed_cycles = now_cycle.wrapping_sub(handle_inner.begin_cycles);
+
         let pending_id = tl.new_span_id();
         let pending_span = Span {
             id: pending_id,
             state: State::Pending,
             parent_id: handle_inner.next_pending_parent_id,
             begin_cycles: handle_inner.begin_cycles,
-            elapsed_cycles: minstant::now().wrapping_sub(handle_inner.begin_cycles),
+            elapsed_cycles,
             event,
         };
-        tl.span_set.spans.push(pending_span);
+        tl.spans.push(pending_span);
 
         let span_id = tl.new_span_id();
         let span_inner = SpanGuardInner::enter(
@@ -89,7 +97,7 @@ impl AsyncHandle {
                 id: span_id,
                 state: State::Normal,
                 parent_id: pending_id,
-                begin_cycles: minstant::now(),
+                begin_cycles: now_cycle,
                 elapsed_cycles: 0,
                 event,
             },
@@ -97,12 +105,14 @@ impl AsyncHandle {
         );
         handle_inner.next_pending_parent_id = span_id;
 
-        tl.cur_collector = Some(handle_inner.collector.clone());
+        tl.trace_id = handle_inner.trace_id;
+        tl.start_time_ns = real_time_ns().saturating_sub(cycles_to_ns(elapsed_cycles));
+        tl.collector = Some(collector.clone_into_box());
 
-        AsyncScopeGuard {
+        Some(AsyncScopeGuard {
             span_inner,
             handle_inner,
-        }
+        })
     }
 
     #[inline]
@@ -147,8 +157,19 @@ impl<'a> Drop for AsyncScopeGuard<'a> {
 
         let now_cycle = self.span_inner.exit(tl);
         self.handle_inner.begin_cycles = now_cycle;
-        self.handle_inner.collector.send(tl.span_set.take()).ok();
 
-        tl.cur_collector = None;
+        let (spans, properties) = tl.take_spans_and_properties();
+
+        let mut c = tl.collector.take().unwrap();
+        c.collect_span_set(SpanSet {
+            trace_id: tl.trace_id,
+            start_time_ns: tl.start_time_ns,
+            cycles_per_second: minstant::cycles_per_second(),
+            spans,
+            properties,
+        });
+
+        tl.trace_id = 0;
+        tl.start_time_ns = 0;
     }
 }

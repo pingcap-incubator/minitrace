@@ -23,13 +23,16 @@ fn trace_wide_bench(c: &mut Criterion) {
         "trace_wide",
         |b, len| {
             b.iter(|| {
-                let (_root, tracker) = minitrace::start_trace(0u32).unwrap();
+                let (collector, finisher) = minitrace::collector::SyncCollector::new();
 
-                if *len > 1 {
-                    dummy_iter(*len);
+                {
+                    let _root = minitrace::start_trace(0, 0u32, collector).unwrap();
+                    if *len > 1 {
+                        dummy_iter(*len);
+                    }
                 }
 
-                tracker.finish().collect();
+                finisher.finish();
             });
         },
         vec![1, 10, 100, 1000, 10000],
@@ -41,13 +44,16 @@ fn trace_deep_bench(c: &mut Criterion) {
         "trace_deep",
         |b, len| {
             b.iter(|| {
-                let (_root, tracker) = minitrace::start_trace(0u32).unwrap();
+                let (collector, finisher) = minitrace::collector::SyncCollector::new();
 
-                if *len > 1 {
-                    dummy_rec(*len);
+                {
+                    let _root = minitrace::start_trace(0, 0u32, collector).unwrap();
+                    if *len > 1 {
+                        dummy_rec(*len);
+                    }
                 }
 
-                tracker.finish().collect();
+                finisher.finish();
             });
         },
         vec![1, 10, 100, 1000, 10000],
@@ -67,11 +73,14 @@ fn trace_future_bench(c: &mut Criterion) {
         "trace_future",
         |b, len| {
             b.iter(|| {
-                let (_root, tracker) = minitrace::start_trace(0u32).unwrap();
+                let (collector, finisher) = minitrace::collector::SyncCollector::new();
 
-                let _ = futures_03::executor::block_on(f(*len).in_new_span(0u32));
+                {
+                    let _root = minitrace::start_trace(0, 0u32, collector).unwrap();
+                    let _ = futures_03::executor::block_on(f(*len).in_new_span(0u32));
+                }
 
-                tracker.finish().collect();
+                finisher.finish();
             });
         },
         vec![1, 10, 100, 1000, 10000],
@@ -83,13 +92,16 @@ fn trace_start_context(c: &mut Criterion) {
         "trace_context",
         |b, len| {
             b.iter(|| {
-                let (_root, tracker) = minitrace::start_trace(0u32).unwrap();
+                let (collector, finisher) = minitrace::collector::SyncCollector::new();
 
-                for _ in 0..*len {
-                    let _guard = black_box(minitrace::thread::new_async_handle());
+                {
+                    let _root = minitrace::start_trace(0, 0u32, collector).unwrap();
+                    for _ in 0..*len {
+                        let _guard = black_box(minitrace::thread::new_async_handle());
+                    }
                 }
 
-                tracker.finish().collect();
+                finisher.finish();
             });
         },
         vec![1, 10, 100, 1000, 10000],

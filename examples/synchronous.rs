@@ -32,7 +32,8 @@ fn func2(i: u64) {
 }
 
 fn main() {
-    let (root, tracker) = minitrace::start_trace(SyncJob::Root).unwrap();
+    let (collector, finisher) = minitrace::collector::SyncCollector::new();
+    let root = minitrace::start_trace(rand::random(), SyncJob::Root, collector).unwrap();
     minitrace::new_property(b"sample property:it works");
     {
         let _guard = root;
@@ -41,7 +42,7 @@ fn main() {
         }
     }
 
-    let trace_result = tracker.finish().collect();
+    let trace_result = finisher.finish();
 
     let mut buf = Vec::with_capacity(2048);
     minitrace_jaeger::thrift_compact_encode(
@@ -49,7 +50,12 @@ fn main() {
         "Sync Example",
         rand::random(),
         rand::random(),
-        &trace_result,
+        minitrace_jaeger::TraceResult {
+            start_time_ns: trace_result.start_time_ns,
+            cycles_per_second: trace_result.cycles_per_second,
+            spans: &trace_result.spans,
+            properties: &trace_result.properties,
+        },
         |s| JaegerSpanInfo {
             self_id: s.id as _,
             parent_id: s.parent_id as _,
@@ -79,5 +85,5 @@ fn main() {
     ))
     .and_then(move |s| s.send_to(&buf, agent));
 
-    crate::common::draw_stdout(trace_result);
+    crate::common::draw_stdout(&trace_result.spans, trace_result.cycles_per_second);
 }

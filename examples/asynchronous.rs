@@ -48,7 +48,8 @@ async fn other_job() {
 
 #[tokio::main]
 async fn main() {
-    let (root, tracker) = minitrace::start_trace(AsyncJob::Root).unwrap();
+    let (collector, finisher) = minitrace::collector::SyncCollector::new();
+    let root = minitrace::start_trace(rand::random(), AsyncJob::Root, collector).unwrap();
 
     let f = async {
         minitrace::new_property(b"sample property:it works");
@@ -64,7 +65,7 @@ async fn main() {
     drop(root);
     f.await;
 
-    let trace_result = tracker.finish().collect();
+    let trace_result = finisher.finish();
 
     use std::net::SocketAddr;
     let mut buf = Vec::with_capacity(2048);
@@ -73,7 +74,12 @@ async fn main() {
         "Async Example",
         rand::random(),
         rand::random(),
-        &trace_result,
+        minitrace_jaeger::TraceResult {
+            start_time_ns: trace_result.start_time_ns,
+            cycles_per_second: trace_result.cycles_per_second,
+            spans: &trace_result.spans,
+            properties: &trace_result.properties,
+        },
         |s| JaegerSpanInfo {
             self_id: s.id as _,
             parent_id: s.parent_id as _,
@@ -102,5 +108,5 @@ async fn main() {
         let _ = socket.send_to(&buf, "127.0.0.1:6831").await;
     }
 
-    crate::common::draw_stdout(trace_result);
+    crate::common::draw_stdout(&trace_result.spans, trace_result.cycles_per_second);
 }

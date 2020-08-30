@@ -3,14 +3,13 @@
 pub mod future;
 pub mod thread;
 
-mod collector;
+pub mod collector;
 mod trace;
 mod utils;
 
-pub use crate::collector::{Collector, Properties, TraceResult, Tracker};
 pub use crate::trace::{
-    new_property, new_property_with, new_span, start_trace, ScopeGuard, Span, SpanGuard, SpanId,
-    State,
+    new_property, new_property_with, new_span, start_trace, Properties, ScopeGuard, Span,
+    SpanGuard, SpanId, State, TraceId,
 };
 
 pub use minitrace_macro::{trace, trace_async};

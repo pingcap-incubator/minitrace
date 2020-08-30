@@ -34,8 +34,8 @@ fn build_tree(spans: &[Span]) -> (Dag<Span, ()>, NodeIndex, u64, u64) {
     (dag, root.expect("root doesn't exist"), min_begin, max_end)
 }
 
-pub fn draw_stdout(trace_details: minitrace::TraceResult) {
-    let (tree, root, min_begin, max_end) = build_tree(&trace_details.spans);
+pub fn draw_stdout(spans: &[Span], cycles_per_second: u64) {
+    let (tree, root, min_begin, max_end) = build_tree(spans);
     let factor = BAR_LEN as f64 / (max_end - min_begin) as f64;
 
     let mut stack = vec![root];
@@ -70,7 +70,7 @@ pub fn draw_stdout(trace_details: minitrace::TraceResult) {
         // draw time
         println!(
             "{:6.2} ms",
-            span.elapsed_cycles as f64 * 1_000.0 / trace_details.cycles_per_second as f64
+            span.elapsed_cycles as f64 * 1_000.0 / cycles_per_second as f64
         );
     }
 }
