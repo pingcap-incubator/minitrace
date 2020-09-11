@@ -9,32 +9,33 @@ pub fn trace_enable<T: Into<u32>>(
     crate::collector::Collector,
 ) {
     let event = event.into();
-    trace_enable_fine(event, event)
+    trace_enable_fine(event, event, event)
 }
 
 #[must_use]
 #[inline]
-pub fn trace_enable_fine<E1: Into<u32>, E2: Into<u32>>(
+pub fn trace_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
+    event: E0,
     pending_event: E1,
     settle_event: E2,
 ) -> (
     crate::trace_local::LocalTraceGuard,
     crate::collector::Collector,
 ) {
-    let event = settle_event.into();
-    let pending_event = pending_event.into();
-
     let now_cycles = minstant::now();
     let mut collector = crate::collector::Collector::new(crate::time::real_time_ns());
 
     let mut handle = crate::trace_async::TraceHandle::new_root(
         collector.inner.clone(),
         now_cycles,
-        event,
-        pending_event,
+        event.into(),
+        pending_event.into(),
     );
 
-    let guard = handle.trace_enable(event).unwrap().take_local();
+    let guard = handle
+        .trace_enable(settle_event.into())
+        .unwrap()
+        .take_local();
     collector.trace_handle = Some(handle);
 
     (guard, collector)
@@ -50,13 +51,14 @@ pub fn trace_may_enable<T: Into<u32>>(
     Option<crate::collector::Collector>,
 ) {
     let event = event.into();
-    trace_may_enable_fine(enable, event, event)
+    trace_may_enable_fine(enable, event, event, event)
 }
 
 #[must_use]
 #[inline]
-pub fn trace_may_enable_fine<E1: Into<u32>, E2: Into<u32>>(
+pub fn trace_may_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
     enable: bool,
+    event: E0,
     pending_event: E1,
     settle_event: E2,
 ) -> (
@@ -64,7 +66,7 @@ pub fn trace_may_enable_fine<E1: Into<u32>, E2: Into<u32>>(
     Option<crate::collector::Collector>,
 ) {
     if enable {
-        let (guard, collector) = trace_enable_fine(pending_event, settle_event);
+        let (guard, collector) = trace_enable_fine(event, pending_event, settle_event);
         (Some(guard), Some(collector))
     } else {
         (None, None)

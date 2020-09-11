@@ -19,7 +19,7 @@ pub trait Instrument: Sized {
         TraceSpawned {
             inner: self,
             event,
-            trace_handle: crate::trace::trace_binder_fine(event, pending_event),
+            trace_handle: Some(crate::trace::trace_binder_fine(event, pending_event)),
         }
     }
 
@@ -34,29 +34,29 @@ pub trait Instrument: Sized {
     #[inline]
     fn future_trace_enable<E: Into<u32>>(self, event: E) -> TraceRootFuture<Self> {
         let event = event.into();
-        self.future_trace_enable_fine(event, event)
+        self.future_trace_enable_fine(event, event, event)
     }
 
     #[inline]
-    fn future_trace_enable_fine<E1: Into<u32>, E2: Into<u32>>(
+    fn future_trace_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
         self,
+        event: E0,
         pending_event: E1,
         settle_event: E2,
     ) -> TraceRootFuture<Self> {
         let now_cycles = minstant::now();
         let now = crate::time::real_time_ns();
         let collector = crate::collector::Collector::new(now);
-        let event = settle_event.into();
 
         TraceRootFuture {
             inner: self,
-            event,
-            trace_handle: crate::trace_async::TraceHandle::new_root(
+            event: settle_event.into(),
+            trace_handle: Some(crate::trace_async::TraceHandle::new_root(
                 collector.inner.clone(),
                 now_cycles,
-                event,
+                event.into(),
                 pending_event.into(),
-            ),
+            )),
             collector: Some(collector),
         }
     }
@@ -111,7 +111,7 @@ pub struct TraceSpawned<T> {
     #[pin]
     inner: T,
     event: u32,
-    trace_handle: crate::trace_async::TraceHandle,
+    trace_handle: Option<crate::trace_async::TraceHandle>,
 }
 
 impl<T: std::future::Future> std::future::Future for TraceSpawned<T> {
@@ -122,8 +122,22 @@ impl<T: std::future::Future> std::future::Future for TraceSpawned<T> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let this = self.project();
-        let _guard = this.trace_handle.trace_enable(*this.event);
-        this.inner.poll(cx)
+        let guard = this
+            .trace_handle
+            .as_mut()
+            .unwrap()
+            .trace_enable(*this.event);
+        match this.inner.poll(cx) {
+            r @ std::task::Poll::Ready(_) => {
+                drop(guard);
+                drop(this.trace_handle.take());
+                r
+            }
+            other => {
+                drop(guard);
+                other
+            }
+        }
     }
 }
 
@@ -132,8 +146,18 @@ impl<T: futures_01::Future> futures_01::Future for TraceSpawned<T> {
     type Error = T::Error;
 
     fn poll(&mut self) -> futures_01::Poll<Self::Item, Self::Error> {
-        let _guard = self.trace_handle.trace_enable(self.event);
-        self.inner.poll()
+        let guard = self.trace_handle.as_mut().unwrap().trace_enable(self.event);
+        match self.inner.poll() {
+            r @ Ok(futures_01::Async::NotReady) => {
+                drop(guard);
+                r
+            }
+            other => {
+                drop(guard);
+                drop(self.trace_handle.take());
+                other
+            }
+        }
     }
 }
 
@@ -192,21 +216,24 @@ impl<T: std::future::Future> std::future::Future for MayTraceRootFuture<T> {
             .trace_handle
             .as_mut()
             .and_then(|a| a.trace_enable(event));
-        let r = this.inner.poll(cx);
 
-        let r = match r {
-            std::task::Poll::Ready(r) => r,
-            std::task::Poll::Pending => return std::task::Poll::Pending,
-        };
-
-        drop(guard);
-        std::task::Poll::Ready((this.collector.take(), r))
+        match this.inner.poll(cx) {
+            std::task::Poll::Ready(r) => {
+                drop(guard);
+                drop(this.trace_handle.take());
+                std::task::Poll::Ready((this.collector.take(), r))
+            }
+            _ => {
+                drop(guard);
+                std::task::Poll::Pending
+            }
+        }
     }
 }
 
 impl<T: futures_01::Future> futures_01::Future for MayTraceRootFuture<T> {
     type Item = (Option<crate::Collector>, T::Item);
-    type Error = T::Error;
+    type Error = (Option<crate::Collector>, T::Error);
 
     fn poll(&mut self) -> futures_01::Poll<Self::Item, Self::Error> {
         let event = self.event;
@@ -214,21 +241,23 @@ impl<T: futures_01::Future> futures_01::Future for MayTraceRootFuture<T> {
             .trace_handle
             .as_mut()
             .and_then(|a| a.trace_enable(event));
-        let r = self.inner.poll();
 
-        let r = match r {
-            Err(r) => {
-                let _ = self.collector.take();
-                return Err(r);
+        match self.inner.poll() {
+            Ok(futures_01::Async::NotReady) => {
+                drop(guard);
+                Ok(futures_01::Async::NotReady)
             }
-            Ok(futures_01::Async::Ready(r)) => r,
-            Ok(_) => {
-                return Ok(futures_01::Async::NotReady);
+            Ok(futures_01::Async::Ready(r)) => {
+                drop(guard);
+                drop(self.trace_handle.take());
+                Ok(futures_01::Async::Ready((self.collector.take(), r)))
             }
-        };
-
-        drop(guard);
-        Ok(futures_01::Async::Ready((self.collector.take(), r)))
+            Err(err) => {
+                drop(guard);
+                drop(self.trace_handle.take());
+                Err((self.collector.take(), err))
+            }
+        }
     }
 }
 
@@ -238,7 +267,7 @@ pub struct TraceRootFuture<T> {
     inner: T,
     event: u32,
 
-    trace_handle: crate::trace_async::TraceHandle,
+    trace_handle: Option<crate::trace_async::TraceHandle>,
     // finally return to user
     collector: Option<crate::collector::Collector>,
 }
@@ -251,45 +280,51 @@ impl<T: std::future::Future> std::future::Future for TraceRootFuture<T> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let this = self.project();
-        let guard = this.trace_handle.trace_enable(*this.event);
-        let r = this.inner.poll(cx);
+        let guard = this
+            .trace_handle
+            .as_mut()
+            .unwrap()
+            .trace_enable(*this.event);
 
-        let r = match r {
-            std::task::Poll::Ready(r) => r,
-            std::task::Poll::Pending => return std::task::Poll::Pending,
-        };
-
-        drop(guard);
-
-        // mute rust-analyzer
-        let oc: &mut Option<_> = this.collector;
-        std::task::Poll::Ready((oc.take().expect("poll twice"), r))
+        match this.inner.poll(cx) {
+            std::task::Poll::Ready(r) => {
+                drop(guard);
+                drop(this.trace_handle.take());
+                std::task::Poll::Ready((this.collector.take().unwrap(), r))
+            }
+            _ => {
+                drop(guard);
+                std::task::Poll::Pending
+            }
+        }
     }
 }
 
 impl<T: futures_01::Future> futures_01::Future for TraceRootFuture<T> {
     type Item = (crate::Collector, T::Item);
-    type Error = T::Error;
+    type Error = (crate::Collector, T::Error);
 
     fn poll(&mut self) -> futures_01::Poll<Self::Item, Self::Error> {
-        let guard = self.trace_handle.trace_enable(self.event);
-        let r = self.inner.poll();
+        let guard = self.trace_handle.as_mut().unwrap().trace_enable(self.event);
 
-        let r = match r {
-            Err(r) => {
-                let _ = self.collector.take();
-                return Err(r);
+        match self.inner.poll() {
+            Ok(futures_01::Async::NotReady) => {
+                drop(guard);
+                Ok(futures_01::Async::NotReady)
             }
-            Ok(futures_01::Async::Ready(r)) => r,
-            Ok(_) => {
-                return Ok(futures_01::Async::NotReady);
+            Ok(futures_01::Async::Ready(r)) => {
+                drop(guard);
+                drop(self.trace_handle.take());
+                Ok(futures_01::Async::Ready((
+                    self.collector.take().unwrap(),
+                    r,
+                )))
             }
-        };
-
-        drop(guard);
-        Ok(futures_01::Async::Ready((
-            self.collector.take().expect("poll twice"),
-            r,
-        )))
+            Err(err) => {
+                drop(guard);
+                drop(self.trace_handle.take());
+                Err((self.collector.take().unwrap(), err))
+            }
+        }
     }
 }
