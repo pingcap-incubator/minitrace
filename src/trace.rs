@@ -25,7 +25,7 @@ pub fn trace_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
     let now_cycles = minstant::now();
     let mut collector = crate::collector::Collector::new(crate::time::real_time_ns());
 
-    let mut handle = crate::trace_async::TraceHandle::new_root(
+    let handle = crate::trace_async::TraceHandle::new_root(
         collector.inner.clone(),
         now_cycles,
         event.into(),
@@ -85,7 +85,7 @@ pub fn new_span<T: Into<u32>>(event: T) -> Option<crate::trace_local::SpanGuard>
 /// # use minitrace::trace_binder;
 /// # use std::thread;
 /// #
-/// let mut handle = trace_binder(EVENT0);
+/// let handle = trace_binder(EVENT0);
 /// thread::spawn(move || {
 ///     let _g = handle.trace_enable(EVENT1);
 /// });

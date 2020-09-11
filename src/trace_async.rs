@@ -1,9 +1,11 @@
 // Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
 
+use std::cell::Cell;
+
 struct AsyncTraceInner {
     collector: std::sync::Arc<crate::collector::CollectorInner>,
-    next_suspending_state: crate::State,
-    suspending_begin_cycles: u64,
+    next_suspending_state: Cell<crate::State>,
+    suspending_begin_cycles: Cell<u64>,
     pending_event: u32,
 
     parent_id: u32,
@@ -28,7 +30,7 @@ pub struct LocalTraceGuard<'a> {
     // is started, the gap time is the wait time of the next local-tracing.
     //
     // Here is the mutable reference for this purpose.
-    handle: &'a mut AsyncTraceInner,
+    handle: &'a AsyncTraceInner,
 }
 
 impl LocalTraceGuard<'_> {
@@ -39,7 +41,8 @@ impl LocalTraceGuard<'_> {
 
 impl Drop for LocalTraceGuard<'_> {
     fn drop(&mut self) {
-        self.handle.suspending_begin_cycles = minstant::now();
+        drop(self.local.take());
+        self.handle.suspending_begin_cycles.set(minstant::now());
     }
 }
 
@@ -59,8 +62,8 @@ impl TraceHandle {
         Self {
             inner: Some(AsyncTraceInner {
                 collector,
-                next_suspending_state: crate::State::Spawning,
-                suspending_begin_cycles: now_cycles,
+                next_suspending_state: Cell::new(crate::State::Spawning),
+                suspending_begin_cycles: Cell::new(now_cycles),
                 pending_event,
 
                 parent_id,
@@ -72,8 +75,8 @@ impl TraceHandle {
         }
     }
 
-    pub fn trace_enable<E: Into<u32>>(&mut self, event: E) -> Option<LocalTraceGuard> {
-        if let Some(inner) = &mut self.inner {
+    pub fn trace_enable<E: Into<u32>>(&self, event: E) -> Option<LocalTraceGuard> {
+        if let Some(inner) = &self.inner {
             let settle_event = event.into();
             let pending_event = inner.pending_event;
 
@@ -84,17 +87,17 @@ impl TraceHandle {
                 crate::LeadingSpan {
                     // At this restoring time, fill this leading span the previously reserved suspending state,
                     // related id, begin cycles and ...
-                    state: inner.next_suspending_state,
+                    state: inner.next_suspending_state.get(),
                     related_id: inner.parent_id,
-                    begin_cycles: inner.suspending_begin_cycles,
+                    begin_cycles: inner.suspending_begin_cycles.get(),
                     // ... other fields calculating via them.
-                    elapsed_cycles: now_cycles.wrapping_sub(inner.suspending_begin_cycles),
+                    elapsed_cycles: now_cycles.wrapping_sub(inner.suspending_begin_cycles.get()),
                     event: pending_event,
                 },
                 settle_event,
             ) {
                 // Reserve these for the next suspending process
-                inner.next_suspending_state = crate::State::Scheduling;
+                inner.next_suspending_state.set(crate::State::Scheduling);
 
                 // Obviously, the begin cycles of the next suspending is impossible to predict, and it should
                 // be recorded when `local_guard` is dropping. Here `LocalTraceGuard` is for this purpose.
@@ -124,8 +127,8 @@ impl TraceHandle {
         Self {
             inner: Some(AsyncTraceInner {
                 collector,
-                next_suspending_state: crate::State::Spawning,
-                suspending_begin_cycles: now_cycles,
+                next_suspending_state: Cell::new(crate::State::Spawning),
+                suspending_begin_cycles: Cell::new(now_cycles),
                 pending_event,
 
                 parent_id: root_id,
