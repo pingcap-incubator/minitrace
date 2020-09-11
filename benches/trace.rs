@@ -93,8 +93,8 @@ fn trace_start_context(c: &mut Criterion) {
                 let collector = {
                     let (_guard, collector) = minitrace::trace_enable(0u32);
 
-                    for _i in 0..len - 1 {
-                        black_box(minitrace::trace_binder());
+                    for i in 0u32..len - 1 {
+                        black_box(minitrace::trace_binder(i));
                     }
 
                     collector

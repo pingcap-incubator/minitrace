@@ -1,6 +1,6 @@
 // Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
 
-mod common;
+#![allow(unused_variables)]
 
 #[derive(Debug)]
 enum SyncJob {
@@ -90,6 +90,4 @@ fn main() {
         ))
         .and_then(move |s| s.send_to(&buf, agent));
     }
-
-    crate::common::draw_stdout(trace_details);
 }

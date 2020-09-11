@@ -21,24 +21,23 @@ pub fn trace_enable_fine<E1: Into<u32>, E2: Into<u32>>(
     crate::trace_local::LocalTraceGuard,
     crate::collector::Collector,
 ) {
-    let now_cycles = minstant::now();
-    let collector = crate::collector::Collector::new(crate::time::real_time_ns());
+    let event = settle_event.into();
+    let pending_event = pending_event.into();
 
-    let (trace_guard, _) = crate::trace_local::LocalTraceGuard::new(
+    let now_cycles = minstant::now();
+    let mut collector = crate::collector::Collector::new(crate::time::real_time_ns());
+
+    let mut handle = crate::trace_async::TraceHandle::new_root(
         collector.inner.clone(),
         now_cycles,
-        crate::LeadingSpan {
-            state: crate::State::Root,
-            related_id: 0,
-            begin_cycles: now_cycles,
-            elapsed_cycles: 0,
-            event: pending_event.into(),
-        },
-        settle_event.into(),
-    )
-    .unwrap(); // It's safe to unwrap because the collector always exists at present.
+        event,
+        pending_event,
+    );
 
-    (trace_guard, collector)
+    let guard = handle.trace_enable(event).unwrap().take_local();
+    collector.trace_handle = Some(handle);
+
+    (guard, collector)
 }
 
 #[must_use]
@@ -84,21 +83,25 @@ pub fn new_span<T: Into<u32>>(event: T) -> Option<crate::trace_local::SpanGuard>
 /// # use minitrace::trace_binder;
 /// # use std::thread;
 /// #
-/// let mut handle = trace_binder();
+/// let mut handle = trace_binder(EVENT0);
 /// thread::spawn(move || {
-///     let _g = handle.trace_enable(EVENT);
+///     let _g = handle.trace_enable(EVENT1);
 /// });
 /// ```
 #[must_use]
 #[inline]
-pub fn trace_binder() -> crate::trace_async::TraceHandle {
-    crate::trace_async::TraceHandle::new(None)
+pub fn trace_binder<E: Into<u32>>(event: E) -> crate::trace_async::TraceHandle {
+    let event = event.into();
+    crate::trace_async::TraceHandle::new(event, event)
 }
 
 #[must_use]
 #[inline]
-pub fn trace_binder_fine<E: Into<u32>>(pending_event: E) -> crate::trace_async::TraceHandle {
-    crate::trace_async::TraceHandle::new(Some(pending_event.into()))
+pub fn trace_binder_fine<E1: Into<u32>, E2: Into<u32>>(
+    event: E1,
+    pending_event: E2,
+) -> crate::trace_async::TraceHandle {
+    crate::trace_async::TraceHandle::new(event.into(), pending_event.into())
 }
 
 /// The property is in bytes format, so it is not limited to be a key-value pair but

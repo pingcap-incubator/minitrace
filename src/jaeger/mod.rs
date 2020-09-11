@@ -266,7 +266,7 @@ pub fn thrift_compact_encode<'a, S0: AsRef<str>, S1: AsRef<str>, S2: AsRef<str>>
         // const I64_TYPE: u8 = 6;property_lens
         buf.push(0x16);
         // start time data
-        let delta_cycles = begin_cycles.saturating_sub(anchor_cycles);
+        let delta_cycles = begin_cycles.wrapping_sub(anchor_cycles);
         let delta_us = delta_cycles as f64 / *cycles_per_second as f64 * 1_000_000.0;
         encode::varint(
             buf,

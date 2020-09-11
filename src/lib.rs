@@ -19,8 +19,8 @@ pub use trace::*;
 pub use trace_async::*;
 pub use trace_local::*;
 
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 pub use minitrace_attribute::{trace, trace_async};
 
@@ -147,7 +147,7 @@ pub enum State {
 /// property_lens: [3, 6, 4, 3]
 /// payload: b"123!@$#$%abcdxyz"
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Properties {
     pub span_ids: Vec<u32>,
     pub property_lens: Vec<u64>,

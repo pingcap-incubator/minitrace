@@ -10,36 +10,41 @@ pub(crate) struct SpanSet {
 }
 
 pub(crate) struct CollectorInner {
-    start_time_ns: u64,
     pub(crate) queue: crossbeam::queue::SegQueue<SpanSet>,
     pub(crate) closed: std::sync::atomic::AtomicBool,
 }
 
 pub struct Collector {
     pub(crate) inner: std::sync::Arc<CollectorInner>,
+    start_time_ns: u64,
+    pub(crate) trace_handle: Option<crate::TraceHandle>,
 }
 
 impl Collector {
     pub(crate) fn new(start_time_ns: u64) -> Self {
         let collector = std::sync::Arc::new(crate::collector::CollectorInner {
-            start_time_ns,
             queue: crossbeam::queue::SegQueue::new(),
             closed: std::sync::atomic::AtomicBool::new(false),
         });
 
-        crate::collector::Collector { inner: collector }
+        crate::collector::Collector {
+            inner: collector,
+            start_time_ns,
+            trace_handle: None,
+        }
     }
 
     #[inline]
-    pub fn collect(self) -> crate::TraceDetails {
+    pub fn collect(mut self) -> crate::TraceDetails {
+        drop(self.trace_handle.take());
         let span_sets = self.collect_spanset();
 
         // Fast path to save memory allocation.
         if span_sets.len() == 1 {
             let span_set = span_sets.into_iter().next().unwrap();
             return crate::TraceDetails {
-                start_time_ns: self.inner.start_time_ns,
-                elapsed_ns: crate::time::real_time_ns().saturating_sub(self.inner.start_time_ns),
+                start_time_ns: self.start_time_ns,
+                elapsed_ns: crate::time::real_time_ns().saturating_sub(self.start_time_ns),
                 cycles_per_second: minstant::cycles_per_second(),
                 spans: span_set.spans,
                 properties: span_set.properties,
@@ -71,8 +76,8 @@ impl Collector {
         }
 
         crate::TraceDetails {
-            start_time_ns: self.inner.start_time_ns,
-            elapsed_ns: crate::time::real_time_ns().saturating_sub(self.inner.start_time_ns),
+            start_time_ns: self.start_time_ns,
+            elapsed_ns: crate::time::real_time_ns().saturating_sub(self.start_time_ns),
             cycles_per_second: minstant::cycles_per_second(),
             spans,
             properties: crate::Properties {

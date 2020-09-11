@@ -1,6 +1,7 @@
 // Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
 
-mod common;
+#![allow(unused_variables)]
+
 use minitrace::prelude::*;
 
 #[derive(Debug)]
@@ -108,6 +109,4 @@ async fn main() {
             let _ = socket.send_to(&buf, "127.0.0.1:6831").await;
         }
     }
-
-    crate::common::draw_stdout(trace_details);
 }

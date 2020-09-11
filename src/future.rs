@@ -15,10 +15,11 @@ pub trait Instrument: Sized {
         pending_event: E1,
         settle_event: E2,
     ) -> TraceSpawned<Self> {
+        let event = settle_event.into();
         TraceSpawned {
             inner: self,
-            event: settle_event.into(),
-            trace_handle: crate::trace::trace_binder_fine(pending_event),
+            event,
+            trace_handle: crate::trace::trace_binder_fine(event, pending_event),
         }
     }
 
@@ -45,14 +46,16 @@ pub trait Instrument: Sized {
         let now_cycles = minstant::now();
         let now = crate::time::real_time_ns();
         let collector = crate::collector::Collector::new(now);
+        let event = settle_event.into();
 
         TraceRootFuture {
             inner: self,
-            event: settle_event.into(),
+            event,
             trace_handle: crate::trace_async::TraceHandle::new_root(
                 collector.inner.clone(),
                 now_cycles,
-                Some(pending_event.into()),
+                event,
+                pending_event.into(),
             ),
             collector: Some(collector),
         }
@@ -80,13 +83,15 @@ pub trait Instrument: Sized {
 
             let now = crate::time::real_time_ns();
             let collector = crate::collector::Collector::new(now);
+            let event = settle_event.into();
             MayTraceRootFuture {
                 inner: self,
-                event: settle_event.into(),
+                event,
                 trace_handle: Some(crate::trace_async::TraceHandle::new_root(
                     collector.inner.clone(),
                     now_cycles,
-                    Some(pending_event.into()),
+                    event,
+                    pending_event.into(),
                 )),
                 collector: Some(collector),
             }
@@ -167,8 +172,11 @@ pub struct MayTraceRootFuture<T> {
     #[pin]
     inner: T,
     event: u32,
-    collector: Option<crate::collector::Collector>,
+
     trace_handle: Option<crate::trace_async::TraceHandle>,
+
+    // finally return to user
+    collector: Option<crate::collector::Collector>,
 }
 
 impl<T: std::future::Future> std::future::Future for MayTraceRootFuture<T> {
@@ -229,8 +237,10 @@ pub struct TraceRootFuture<T> {
     #[pin]
     inner: T,
     event: u32,
-    collector: Option<crate::collector::Collector>,
+
     trace_handle: crate::trace_async::TraceHandle,
+    // finally return to user
+    collector: Option<crate::collector::Collector>,
 }
 
 impl<T: std::future::Future> std::future::Future for TraceRootFuture<T> {
