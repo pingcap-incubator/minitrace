@@ -4,10 +4,7 @@
 #[inline]
 pub fn trace_enable<T: Into<u32>>(
     event: T,
-) -> (
-    crate::trace_local::LocalTraceGuard,
-    crate::collector::Collector,
-) {
+) -> (crate::trace_local::LocalGuard, crate::collector::Collector) {
     let event = event.into();
     trace_enable_fine(event, event, event)
 }
@@ -18,10 +15,7 @@ pub fn trace_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
     event: E0,
     pending_event: E1,
     settle_event: E2,
-) -> (
-    crate::trace_local::LocalTraceGuard,
-    crate::collector::Collector,
-) {
+) -> (crate::trace_local::LocalGuard, crate::collector::Collector) {
     let now_cycles = minstant::now();
     let mut collector = crate::collector::Collector::new(crate::time::real_time_ns());
 
@@ -34,8 +28,8 @@ pub fn trace_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
 
     let guard = handle
         .trace_enable(settle_event.into())
-        .unwrap()
-        .take_local();
+        .unwrap() // will not panic
+        .take_local_guard();
     collector.trace_handle = Some(handle);
 
     (guard, collector)
@@ -47,7 +41,7 @@ pub fn trace_may_enable<T: Into<u32>>(
     enable: bool,
     event: T,
 ) -> (
-    Option<crate::trace_local::LocalTraceGuard>,
+    Option<crate::trace_local::LocalGuard>,
     Option<crate::collector::Collector>,
 ) {
     let event = event.into();
@@ -62,7 +56,7 @@ pub fn trace_may_enable_fine<E0: Into<u32>, E1: Into<u32>, E2: Into<u32>>(
     pending_event: E1,
     settle_event: E2,
 ) -> (
-    Option<crate::trace_local::LocalTraceGuard>,
+    Option<crate::trace_local::LocalGuard>,
     Option<crate::collector::Collector>,
 ) {
     if enable {

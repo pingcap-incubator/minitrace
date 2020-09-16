@@ -20,6 +20,7 @@ pub struct TraceHandle {
 }
 
 pub struct LocalTraceGuard<'a> {
+    // Option is for dropping.
     local: Option<crate::trace_local::LocalTraceGuard>,
 
     // `TraceHandle` may be used to trace a `Future` task which
@@ -33,9 +34,19 @@ pub struct LocalTraceGuard<'a> {
     handle: &'a AsyncTraceInner,
 }
 
-impl LocalTraceGuard<'_> {
-    pub(crate) fn take_local(mut self) -> crate::trace_local::LocalTraceGuard {
-        self.local.take().unwrap()
+pub enum SettleGuard<'a> {
+    TraceGuard(LocalTraceGuard<'a>),
+    SpanGuard(crate::SpanGuard),
+}
+
+impl SettleGuard<'_> {
+    pub(crate) fn take_local_guard(self) -> crate::trace_local::LocalGuard {
+        match self {
+            SettleGuard::TraceGuard(mut g) => {
+                crate::trace_local::LocalGuard::TraceGuard(g.local.take().unwrap())
+            }
+            SettleGuard::SpanGuard(s) => crate::trace_local::LocalGuard::SpanGuard(s),
+        }
     }
 }
 
@@ -75,9 +86,9 @@ impl TraceHandle {
         }
     }
 
-    pub fn trace_enable<E: Into<u32>>(&self, event: E) -> Option<LocalTraceGuard> {
+    pub fn trace_enable<E: Into<u32>>(&self, event: E) -> Option<SettleGuard> {
+        let settle_event = event.into();
         if let Some(inner) = &self.inner {
-            let settle_event = event.into();
             let pending_event = inner.pending_event;
 
             let now_cycles = minstant::now();
@@ -102,15 +113,15 @@ impl TraceHandle {
                 // Obviously, the begin cycles of the next suspending is impossible to predict, and it should
                 // be recorded when `local_guard` is dropping. Here `LocalTraceGuard` is for this purpose.
                 // See `impl Drop for LocalTraceGuard`.
-                Some(LocalTraceGuard {
+                Some(SettleGuard::TraceGuard(LocalTraceGuard {
                     local: Some(local_guard),
                     handle: inner,
-                })
+                }))
             } else {
-                None
+                crate::new_span(settle_event).map(SettleGuard::SpanGuard)
             }
         } else {
-            None
+            crate::new_span(settle_event).map(SettleGuard::SpanGuard)
         }
     }
 

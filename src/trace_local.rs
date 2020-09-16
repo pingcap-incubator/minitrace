@@ -285,3 +285,8 @@ where
     tl.property_lens.push(payload_len as u64);
     tl.property_payload.extend_from_slice(payload);
 }
+
+pub enum LocalGuard {
+    TraceGuard(LocalTraceGuard),
+    SpanGuard(SpanGuard),
+}
